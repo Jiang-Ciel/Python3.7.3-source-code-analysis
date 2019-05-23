@@ -580,46 +580,46 @@ pymain\_parse\_cmdline\_impl通过调用\_PyOS\_GetOpt函数\footnote[1]{\_PyOS\
 即通过将\_PyCmdline结构体cmdline中同指示变量c所对应的成员的值由0通过“++”操作变为1，指示后续的操作。对于输入代码文件的情况，则如同\#30-37所定义的一样通过调用pymain\_wstrdup函数\footnote[3]{pymain\_wstrdup函数定义在Modules/main.c文件\#498-507。}去除无效字符
 \footnote[4]{如NULL。}仅保留文件名之后，将该文件名所对应的字符串指针传输给\_PyMain结构体pymain的filename成员，以便后续操作的进行。\par
 
-% \begin{lstlisting}
-%     /*== Modules/main.c #2932-2967 ==*/
-%     static int
-%     pymain_cmdline(_PyMain *pymain, _PyCoreConfig *config)
-%     {
-%         /* Force default allocator, since pymain_free() and pymain_clear_config()
-%            must use the same allocator than this function. */
-%         PyMemAllocatorEx old_alloc;
-%         _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-%     #ifdef Py_DEBUG
-%         PyMemAllocatorEx default_alloc;
-%         PyMem_GetAllocator(PYMEM_DOMAIN_RAW, &default_alloc);
-%     #endif
+\begin{lstlisting}
+    /*== Modules/main.c #2932-2967 ==*/
+    static int
+    pymain_cmdline(_PyMain *pymain, _PyCoreConfig *config)
+    {
+        /* Force default allocator, since pymain_free() and pymain_clear_config()
+           must use the same allocator than this function. */
+        PyMemAllocatorEx old_alloc;
+        _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    #ifdef Py_DEBUG
+        PyMemAllocatorEx default_alloc;
+        PyMem_GetAllocator(PYMEM_DOMAIN_RAW, &default_alloc);
+    #endif
 
-%         _PyCmdline cmdline;
-%         memset(&cmdline, 0, sizeof(cmdline));
+        _PyCmdline cmdline;
+        memset(&cmdline, 0, sizeof(cmdline));
 
-%         cmdline_get_global_config(&cmdline);
+        cmdline_get_global_config(&cmdline);
 
-%         int res = pymain_cmdline_impl(pymain, config, &cmdline);
+        int res = pymain_cmdline_impl(pymain, config, &cmdline);
 
-%         cmdline_set_global_config(&cmdline);
-%         _PyCoreConfig_SetGlobalConfig(config);
-%         if (Py_IsolatedFlag) {
-%             Py_IgnoreEnvironmentFlag = 1;
-%             Py_NoUserSiteDirectory = 1;
-%         }
+        cmdline_set_global_config(&cmdline);
+        _PyCoreConfig_SetGlobalConfig(config);
+        if (Py_IsolatedFlag) {
+            Py_IgnoreEnvironmentFlag = 1;
+            Py_NoUserSiteDirectory = 1;
+        }
 
-%         pymain_clear_cmdline(pymain, &cmdline);
+        pymain_clear_cmdline(pymain, &cmdline);
 
-%     #ifdef Py_DEBUG
-%         /* Make sure that PYMEM_DOMAIN_RAW has not been modified */
-%         PyMemAllocatorEx cur_alloc;
-%         PyMem_GetAllocator(PYMEM_DOMAIN_RAW, &cur_alloc);
-%         assert(memcmp(&cur_alloc, &default_alloc, sizeof(cur_alloc)) == 0);
-%     #endif
-%         PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-%         return res;
-%     }
-% \end{lstlisting}
+    #ifdef Py_DEBUG
+        /* Make sure that PYMEM_DOMAIN_RAW has not been modified */
+        PyMemAllocatorEx cur_alloc;
+        PyMem_GetAllocator(PYMEM_DOMAIN_RAW, &cur_alloc);
+        assert(memcmp(&cur_alloc, &default_alloc, sizeof(cur_alloc)) == 0);
+    #endif
+        PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+        return res;
+    }
+\end{lstlisting}
 % \begin{lstlisting}
 %     static int
 %     pymem_set_default_allocator(PyMemAllocatorDomain domain, int debug,
