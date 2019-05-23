@@ -1,0 +1,785 @@
+\documentclass[UTF8]{book}
+\usepackage[margin=15mm]{geometry}
+\usepackage{amsmath}
+% \setmainfont{Times New Roman}
+\usepackage{ctexcap}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{lipsum}
+
+\usepackage[colorlinks]{hyperref}
+\renewcommand{\contentsname}{\centerline{\huge{Content}}}
+\usepackage{fancyhdr}
+% \usepackage{titletoc}
+% \usepackage[toc]{multitoc}
+% \titlecontents{chapter}[4em]{\vspace{3mm}\heiti}{\contentslabel{4.0em}}%
+%     {}{\titlerule*[0.5pc]{$\cdot$}\small\contentspage}
+% \titlecontents{section}[4em]{small}{\contentslabel{2.5em}}%
+%     {}{\titlerule*[0.5pc]{$\cdot$}\small\contentspage}
+% \titlecontents{subsection}[7.0em]{\small}{\contentslabel{3.3em}}%
+%     {}{\titlerule*[0.5pc]{$\cdot$}\small\contentspage}
+
+
+
+
+\hypersetup{colorlinks=true,
+linkcolor=black} 
+\pagestyle{fancy}
+\fancyhf{}
+% \fancyhead[LO,RE]{\leftmark}
+% \fancyhead[LE,RO]{cumtb.iis.ddb}
+\fancyfoot[LO,RE]{}
+\fancyfoot[LE,RO]{-\,\thepage\,-}
+\renewcommand{\headrulewidth}{0pt}
+\fancypagestyle{plain}{
+     \fancyhf{}
+     \fancyfoot[LO,RE]{}
+     \fancyfoot[LE,RO]{-\,\thepage\,-}
+     \renewcommand{\headrulewidth}{0pt}
+}
+
+% \renewcommand{\thechapter}{\Roman{chapter}}
+\titleformat{\chapter}[display]
+{\bfseries\Large}
+{\filleft\MakeUppercase{\chaptertitlename} \Huge\thechapter}
+{4ex}
+{\titlerule
+\vspace{2ex}%
+\filright}
+[\vspace{2ex}%
+\titlerule]
+
+\titlespacing*{\chapter}{0pt}{-10pt}{20pt}
+\definecolor{mygreen}{rgb}{0,0.6,0}
+\definecolor{mygray}{rgb}{0.5,0.5,0.5}
+\definecolor{mymauve}{rgb}{0.58,0,0.82}
+\lstset{ 
+numbers=left, 
+numberstyle= \tiny,%
+backgroundcolor=\color{white},      % choose the background color
+basicstyle=\footnotesize\ttfamily,  % size of fonts used for the code
+columns=fullflexible,
+tabsize=4,
+breaklines=true,               % automatic line breaking only at whitespace
+captionpos=b,                  % sets the caption-position to bottom
+commentstyle=\color{mygreen},  % comment style
+escapeinside={\%*}{*)},        % if you want to add LaTeX within your code
+keywordstyle=\color{blue},     % keyword style
+stringstyle=\color{mymauve}\ttfamily,  % string literal style
+frame=single,
+rulesepcolor=\color{red!20!green!20!blue!20},
+% identifierstyle=\color{red},
+language=C,
+}
+\CTEXsetup[format={\zihao{4}\bf}]{section}
+
+
+\begin{document}
+\tableofcontents
+% You may have thought for over hundreds of times what happens after typing "python ***.py" into a terminal, 
+% how could the python virtual machine know when to run a python file and reach the file you exactly want it to 
+% exacute, and what consist the beautiful REPL which makes code ajustment and test pretty user-friendly.
+% We were all once curious about these, even for those who are treated as expectators on python programming.Thanks for the 
+% opensource of cpython project. Every python-user are given the opportunity to dive into the world behind python.
+% As a prerequirement, I suppose the readers have basic knowledge about C/C++ to some extent (at least the ability to read the 
+% code written in C/C++).
+% \newpage
+\chapter{python进程的生命周期}
+\section{cpython主函数}
+同Linux kernel和我们入门时的“hello world”一样，cpython项目也是由C语言编写而成的，所以这里的cpython其实和我们曾经玩过的“hello world”没什么
+区别。额。。。当然啦，这里只是说编程语言一致而已，别太当真。严格意义上讲，cpython相比于我们以往在C语言课程或书籍中所看到的代码片段还是要复杂得多的。
+
+% The cpython is just a bunch of code written by C just like linux kernel or the beginners' "Hello World" games.
+% So it doesn't make much differences from those in our imagination. Well, just kidding. Strictly speaking, the cpython
+% project pay specially attention to the portability. That's why the python programmes can run smoothly on different platforms without even
+% tiny adjustments(But when talking about portability,which one is better, java? python? It's hard to say).\par
+任何C语言编制的项目都始于一个名为"main"的特殊函数，python也不例外。python的main函数定义在Prgrams/python.c文件下：
+出于可移植性的考虑，python的main函数被划分为两类，适应于Windows系统的wmain和适应于类Unix平台(如：Linux)的main两类，详细代码如下:\par
+\begin{lstlisting}[language={[ANSI]C}]
+#include "Python.h"
+#ifdef MS_WINDOWS
+int
+wmain(int argc, wchar_t **argv)
+{
+    return Py_Main(argc, argv);
+}
+#else
+int
+main(int argc, char **argv)
+{
+    return _Py_UnixMain(argc, argv);
+}
+#endif
+\end{lstlisting}\par
+两函数均定义在Modules/main.c文件内，通过下面的代码，不难看出，对于不同的平台两函数除了对于\_PyMain类型的结构体的赋值过程有所不同之外，函数内部均
+调用了以Py\_Main结构体为输入参数的pymain\_main函数，详细代码如下\footnote{个人还是比较喜欢这种应对多平台(或者多工作环境)的函数编制模式：即采用统一的
+函数模块执行公共的代码段，将代码的不同点通过输入参数的变化找到函数体内对应的不同分支}：
+\begin{lstlisting}[language={[ANSI]C}]
+int
+Py_Main(int argc, wchar_t **argv)
+{
+    _PyMain pymain = _PyMain_INIT;
+    pymain.use_bytes_argv = 0;
+    pymain.argc = argc;
+    pymain.wchar_argv = argv;
+    
+    return pymain_main(&pymain);
+}
+\end{lstlisting}
+\newpage
+\begin{lstlisting}
+int
+_Py_UnixMain(int argc, char **argv)
+{
+    _PyMain pymain = _PyMain_INIT;
+    pymain.use_bytes_argv = 1;
+    pymain.argc = argc;
+    pymain.bytes_argv = argv;
+    
+    return pymain_main(&pymain);
+    }
+\end{lstlisting}\par
+% \newpage
+首先对\_PyMain结构体进行分析，该结构体定义在Modules/main.c文件内。我们可以将\_PyMain结构体肢解为三个部分：\par
+\begin{tabular*}{8cm}{ll}  
+\#3-6 & 对传入主函数的变量的记录。\\
+\#9-11& 对程序执行状态的记录。\\
+\#13-20& python程序解析相关参数。\\
+\end{tabular*}  
+\begin{lstlisting}[language={[ANSI]C}]
+typedef struct {
+    /* Input arguments */
+    int argc;
+    int use_bytes_argv;
+    char **bytes_argv;
+    wchar_t **wchar_argv;
+
+    /* Exit status or "exit code": result of pymain_main() */
+    int status;
+    /* Error message if a function failed */
+    _PyInitError err;
+
+    /* non-zero is stdin is a TTY or if -i option is used */
+    int stdin_is_interactive;
+    int skip_first_line;         /* -x option */
+    wchar_t *filename;           /* Trailing arg without -c or -m */
+    wchar_t *command;            /* -c argument */
+    wchar_t *module;             /* -m argument */
+
+    PyObject *main_importer_path;
+} _PyMain;
+\end{lstlisting}\par
+在执行pymain\_main函数之前，python进程只是将传入C语言主函数的参数赋到\_PyMain结构体
+里面并实现对输入主函数变量的记录以及当前程序执行状态的初始化。\par
+\begin{lstlisting}[language={[ANSI]C}]
+    /*== Modules/main.c #487 ==*/
+    #define _PyMain_INIT {.err = _Py_INIT_OK()}
+    
+    /*== Include/pylifecycle.h #25-26 ==*/
+    #define _Py_INIT_OK() \
+        (_PyInitError){.prefix = NULL, .msg = NULL, .user_err = 0}
+    
+    /*== Include/pylifecycle.h #11-15 ==*/
+    typedef struct {
+        const char *prefix;
+        const char *msg;
+        int user_err;
+    } _PyInitError;
+    \end{lstlisting}
+    其中，对输入主函数变量的记录是由Py\_Main函数的\#5-7\footnote[1]{\_Py\_UnixMain函数的\#17-19}完成。use\_bytes\_argv用于区分python进程所运行的平台\footnote[2]{0代表Windows，1代表类Unix平台}。argc用于记录输入终端的变量个数
+    ，即对传入主函数的argc变量的记录。wchar\_argv和bytes\_argv分别用来对传入执行在Windows和类Unix平台上的主函数的argv变量进行记录。\par
+    对于当前程序执行状态的初始化，则是由\_PyMain\_INIT宏完成的，其实际上是对\_PyMain结构体内的\_PyInitError结构体进行初始化，即指定\_PyInitError结构体内的
+    user\_err变量为0，变量prefix以及msg均为NULL。\par
+\begin{lstlisting}[language={[ANSI]C}]
+/*== Modules/main.c #3020-3040 ==*/
+static int
+pymain_main(_PyMain *pymain)
+{
+    /*-- Initialization --*/
+    int res = pymain_init(pymain);
+    if (res == 1) {
+        goto done;
+    }
+    /*-- Execution --*/
+    pymain_run_python(pymain);
+
+    /*-- Finalization --*/
+    if (Py_FinalizeEx() < 0) {
+        /* Value unlikely to be confused with a non-error exit status or
+           other special meaning */
+        pymain->status = 120;
+    }
+
+done:
+    pymain_free(pymain);
+
+    return pymain->status;
+}
+\end{lstlisting}
+大体上可以将上述pymain\_main函数体分为三个部分，后续小节也将依次对三个部分进行分析：\par
+\begin{tabular*}{8cm}{ll}  
+    \#5-9 & 程序初始化。\\
+    \#11  & 程序执行。\\
+    \#14-21 &程序终止。\\
+    \end{tabular*}  \
+
+\newpage
+\section{pymain\_main函数初始化}
+\subsection{pymain\_main函数主体}
+python主进程的初始化主要在pymain\_init函数中进行，函数的相关代码如下，可以将初始化分成：状态初置\footnote[1]{\#6-22,31-34}和异常处理两部分来分析。
+\begin{lstlisting}
+/*== Modules/main.c #2970-3017 ==*/
+
+static int
+pymain_init(_PyMain *pymain)
+{
+    _PyCoreConfig local_config = _PyCoreConfig_INIT;
+    _PyCoreConfig *config = &local_config;
+
+    /* 754 requires that FP exceptions run in "no stop" mode by default,
+     * and until C vendors implement C99's ways to control FP exceptions,
+     * Python requires non-stop mode.  Alas, some platforms enable FP
+     * exceptions by default.  Here we disable them.
+     */
+#ifdef __FreeBSD__
+    fedisableexcept(FE_OVERFLOW);
+#endif
+
+    config->_disable_importlib = 0;
+    config->install_signal_handlers = 1;
+    _PyCoreConfig_GetGlobalConfig(config);
+
+    int res = pymain_cmdline(pymain, config);
+    if (res < 0) {
+        _Py_FatalInitError(pymain->err);
+    }
+    if (res == 1) {
+        pymain_clear_config(&local_config);
+        return res;
+    }
+
+    pymain_init_stdio(pymain);
+
+    PyInterpreterState *interp;
+    pymain->err = _Py_InitializeCore(&interp, config);
+    if (_Py_INIT_FAILED(pymain->err)) {
+        _Py_FatalInitError(pymain->err);
+    }
+
+    pymain_clear_config(&local_config);
+    config = &interp->core_config;
+
+    if (pymain_init_python_main(pymain, interp) < 0) {
+        _Py_FatalInitError(pymain->err);
+    }
+
+    if (pymain_init_sys_path(pymain, config) < 0) {
+        _Py_FatalInitError(pymain->err);
+    }
+    return 0;
+}
+\end{lstlisting}
+\subsection{cpython终端参数解析}
+ 状态初置涉及到一个新的结构体\_PyCoreConfig，具体代码如下：
+\begin{lstlisting}
+    /*== Include/pystate.h #29-77==*/
+
+    typedef struct {
+        int install_signal_handlers;  /* Install signal handlers? -1 means unset */
+    
+        int ignore_environment; /* -E, Py_IgnoreEnvironmentFlag */
+        int use_hash_seed;      /* PYTHONHASHSEED=x */
+        unsigned long hash_seed;
+        const char *allocator;  /* Memory allocator: _PyMem_SetupAllocators() */
+        int dev_mode;           /* PYTHONDEVMODE, -X dev */
+        int faulthandler;       /* PYTHONFAULTHANDLER, -X faulthandler */
+        int tracemalloc;        /* PYTHONTRACEMALLOC, -X tracemalloc=N */
+        int import_time;        /* PYTHONPROFILEIMPORTTIME, -X importtime */
+        int show_ref_count;     /* -X showrefcount */
+        int show_alloc_count;   /* -X showalloccount */
+        int dump_refs;          /* PYTHONDUMPREFS */
+        int malloc_stats;       /* PYTHONMALLOCSTATS */
+        int coerce_c_locale;    /* PYTHONCOERCECLOCALE, -1 means unknown */
+        int coerce_c_locale_warn; /* PYTHONCOERCECLOCALE=warn */
+        int utf8_mode;          /* PYTHONUTF8, -X utf8; -1 means unknown */
+    
+        wchar_t *program_name;  /* Program name, see also Py_GetProgramName() */
+        int argc;               /* Number of command line arguments,
+                                   -1 means unset */
+        wchar_t **argv;         /* Command line arguments */
+        wchar_t *program;       /* argv[0] or "" */
+    
+        int nxoption;           /* Number of -X options */
+        wchar_t **xoptions;     /* -X options */
+    
+        int nwarnoption;        /* Number of warnings options */
+        wchar_t **warnoptions;  /* Warnings options */
+    
+        /* Path configuration inputs */
+        wchar_t *module_search_path_env; /* PYTHONPATH environment variable */
+        wchar_t *home;          /* PYTHONHOME environment variable,
+                                   see also Py_SetPythonHome(). */
+    
+        /* Path configuration outputs */
+        int nmodule_search_path;        /* Number of sys.path paths,
+                                           -1 means unset */
+        wchar_t **module_search_paths;  /* sys.path paths */
+        wchar_t *executable;    /* sys.executable */
+        wchar_t *prefix;        /* sys.prefix */
+        wchar_t *base_prefix;   /* sys.base_prefix */
+        wchar_t *exec_prefix;   /* sys.exec_prefix */
+        wchar_t *base_exec_prefix;  /* sys.base_exec_prefix */
+    
+        /* Private fields */
+        int _disable_importlib; /* Needed by freeze_importlib */
+    } _PyCoreConfig;
+    
+\end{lstlisting}\par
+这里主要是利用\_PyCoreConfig\_INIT宏以及\_PyCoreConfig\_GetGlobalConfig函数设置\_PyCoreConfig
+的初始参数，可以看到这里基本上仍然将大部分参数设置为-1，即默认或unknow状态，等待后续函数的处理。相关
+代码如下：\par
+\newpage 
+\begin{lstlisting}
+    /*== Include/pystate.h #79-89 ==*/
+    #define _PyCoreConfig_INIT \
+    (_PyCoreConfig){ \
+        .install_signal_handlers = -1, \
+        .ignore_environment = -1, \
+        .use_hash_seed = -1, \
+        .coerce_c_locale = -1, \
+        .faulthandler = -1, \
+        .tracemalloc = -1, \
+        .utf8_mode = -1, \
+        .argc = -1, \
+        .nmodule_search_path = -1}
+
+    /*== Include/pystate.h #1433-1445 ==*/
+    void
+    _PyCoreConfig_GetGlobalConfig(_PyCoreConfig *config)
+    {
+    #define COPY_FLAG(ATTR, VALUE) \
+            if (config->ATTR == -1) { \
+                config->ATTR = VALUE; \
+            }
+
+        COPY_FLAG(ignore_environment, Py_IgnoreEnvironmentFlag);
+        COPY_FLAG(utf8_mode, Py_UTF8Mode);
+
+    #undef COPY_FLAG
+    }
+
+    /*== Python/pylifecycle.c #122==*/
+    int Py_IgnoreEnvironmentFlag = 0;
+
+    /*== Python/bltinmodule.c #35 ==*/
+    int Py_UTF8Mode = -1;
+    /* UTF-8 mode (PEP 540): if equals to 1, use the UTF-8 encoding, and change
+   stdin and stdout error handler to "surrogateescape". It is equal to
+   -1 by default: unknown, will be set by Py_Main() */
+
+\end{lstlisting}
+
+在相关结构体初始化之后，后面紧接着将会对python主进程所用的存储空间进行申请和分配，并且对程序的执行状态信息记录
+作初始化操作。这里重点研究pymain\_cmdline\_impl函数的内容，其他部分将结合后续章节内容进行分析。\par
+\begin{lstlisting}
+    /*== Modules/main.c #2932-2967 ==*/
+    static int
+    pymain_cmdline(_PyMain *pymain, _PyCoreConfig *config)
+    {
+        /* Force default allocator, since pymain_free() and pymain_clear_config()
+           must use the same allocator than this function. */
+        ...
+
+        _PyCmdline cmdline;
+        memset(&cmdline, 0, sizeof(cmdline));
+
+        cmdline_get_global_config(&cmdline);
+
+        int res = pymain_cmdline_impl(pymain, config, &cmdline);
+       ...
+        return res;
+    }
+\end{lstlisting}\par
+在正式进入对pymain\_cmdline\_impl函数体分析之前，我们先对该函数的三个输入参数进行简要的分析，前两个参数分别为\_PyMain和\_PyCoreConfig
+结构体，分别用于记录主进程的执行情况和基本资源配置，这里我们将对\_PyCmdline这个新的结构体进行简要的说明。\par
+我们在使用python时，经常会考虑程序是如何根据我们在终端的输入指令来判断后续需要执行的操作的，例如：在终端输入python，
+就会自动进入REPL交互命令行中；如果输入python --help，终端就会自动回复python的相关使用说明，如果输入python *.py，后面就会自动
+执行相应python代码文件内的程序。按照一般的思路，我们只需要在程序内将指定的字符对应到相应的python功能上就OK了，cpython就利用了
+\_Pycmdline这一结构体来存储终端python命令不同参数所对应的功能，该结构体的定义如下\footnote[1]{这里仅列出源代码的一部分，后面我们将会看到，cpython通过switch结构将
+终端输入对应到\_Pycmdline结构体的不同单元上，以指示不同的python操作。}：
+\begin{lstlisting}
+    /*== Modules/main.c #435-462 ==*/
+    typedef struct {
+    wchar_t **argv;
+    int nwarnoption;             /* Number of -W options */
+    wchar_t **warnoptions;       /* -W options */
+    int nenv_warnoption;         /* Number of PYTHONWARNINGS options */
+    ...
+    int quiet_flag;              /* Py_QuietFlag, -q */
+    const char *check_hash_pycs_mode; /* --check-hash-based-pycs */
+#ifdef MS_WINDOWS
+    int legacy_windows_fs_encoding;  /* Py_LegacyWindowsFSEncodingFlag,
+                                        PYTHONLEGACYWINDOWSFSENCODING */
+    int legacy_windows_stdio;        /* Py_LegacyWindowsStdioFlag,
+                                        PYTHONLEGACYWINDOWSSTDIO */
+#endif
+} _PyCmdline;
+\end{lstlisting}
+\begin{lstlisting}
+    /*== Modules/main.c #2874-2917 ==*/
+    static int
+    pymain_cmdline_impl(_PyMain *pymain, _PyCoreConfig *config,
+                        _PyCmdline *cmdline)
+    {
+        pymain->err = _PyRuntime_Initialize();
+        ...
+        int res = pymain_read_conf(pymain, config, cmdline);
+        ...
+        if (cmdline->print_help) {
+            pymain_usage(0, config->program);
+            return 1;
+        }
+
+        if (cmdline->print_version) {
+            printf("Python %s\n",
+                   (cmdline->print_version >= 2) ? Py_GetVersion() : PY_VERSION);
+            return 1;
+        }
+        ...
+        return 0;
+    }
+\end{lstlisting}\par
+除去异常处理的代码段，pymain\_cmdline\_impl函数的主体主要分为初始化，终端输入参数解析两个部分，分别由\_PyRuntime\_Initialize
+和pymain\_read\_conf两函数实现\footnote{这里重点关注pymain\_read\_conf函数，对于初始化相关的部分在后续章节进行分析。}。作为对
+终端输入参数解析的重要函数之一，pymain\_read\_conf函数实现了依据不同的终端python指令参数，给出对应的执行指令以另后续的执行函数正式
+进行相关操作的导引功能。这里需要注意的是对于help和version两指令的实际执行过程已经在pymain\_cmdline\_impl中体现\footnote[1]{help对应\#10-12，version对应\#15-19}。
+
+\begin{lstlisting}
+    /*== Modules/main.c #2052-2168 ==*/
+    static int
+    pymain_read_conf(_PyMain *pymain, _PyCoreConfig *config, _PyCmdline *cmdline)
+    {
+        ...
+        int loops = 0;
+        ...    
+        while (1) {
+            ...    
+            /* Watchdog to prevent an infinite loop */
+            loops++;
+            if (loops == 3) {
+                pymain->err = _Py_INIT_ERR("Encoding changed twice while "
+                                           "reading the configuration");
+                goto done;
+            }
+    
+            if (pymain_init_cmdline_argv(pymain, config, cmdline) < 0) {
+                goto done;
+            }
+    
+            int conf_res = pymain_read_conf_impl(pymain, config, cmdline);
+            if (conf_res != 0) {
+                res = conf_res;
+                goto done;
+            }
+        ...
+        }
+        res = 0;
+    
+    done:
+        ...
+        return res;
+    } 
+\end{lstlisting}\par
+pymain\_read\_conf函数中的核心部分为定义在Modules/main.c文件\#2077-2157的包含
+看门狗机制的循环代码段上。其中对于python相关终端输入的解析主要由pymain\_init\_cmdline\_argv\footnote{pymain\_init\_cmdline\_argv函数定义在Modules/main.c文件\#520-567，主要是将类Unix系统中cpython主函数读取的
+终端参数由char数据类型转换为wchar\_t类型，方便后续的处理。}和pymain\_read\_conf\_impl
+两函数配合实现。
+\begin{lstlisting}
+    /*== Modules/main.c #1993-2047 ==*/
+    static int
+    pymain_read_conf_impl(_PyMain *pymain, _PyCoreConfig *config,
+                          _PyCmdline *cmdline)
+    {
+        ...    
+        int res = pymain_parse_cmdline(pymain, config, cmdline);
+        if (res != 0) {
+            return res;
+        }
+
+        ...
+        return 0;
+    }
+\end{lstlisting}
+\begin{lstlisting}
+    /*== Modules/main.c #1637-1657 ==*/
+    static int
+    pymain_parse_cmdline(_PyMain *pymain, _PyCoreConfig *config,
+                         _PyCmdline *cmdline)
+    {
+        int res = pymain_parse_cmdline_impl(pymain, config, cmdline);
+        if (res < 0) {
+            return -1;
+        }
+        ...
+        return 0;
+    }
+
+
+\end{lstlisting}
+通过源码可以看出pymain\_read\_conf\_impl实际是对pymain\_parse\_cmdline\_impl函数的“包装”\footnote[1]{略去的部分是pymain\_parse\_cmdline中对于pymain\_parse\_cmdline\_impl函数异常
+输出的一个处理，具体的操作为当cpython主函数接收到的终端参数不在备选集合范围内时，将会由pymain\_parse\_cmdline\_impl返回一个非0的int类型数据作为错误指示，引导pymain\_parse\_cmdline在后续的
+操作中调用定义在Modules/main.c文件\#151-167的pymain\_usage函数以实现在同一终端下输出python的终端命令使用导引，引导用户输入正确的python终端指令。}
+\begin{lstlisting}
+    /*== Modules/main.c #739-911 ==*/
+    static int
+    pymain_parse_cmdline_impl(_PyMain *pymain, _PyCoreConfig *config,
+                              _PyCmdline *cmdline)
+    {
+        _PyOS_ResetGetOpt();
+        do {
+            int longindex = -1;
+            int c = _PyOS_GetOpt(pymain->argc, cmdline->argv, PROGRAM_OPTS,
+                                 longoptions, &longindex);
+            if (c == EOF) {
+                break;
+            }
+
+            if (c == 'c') {
+                ...
+            }
+            if (c == 'm') {
+                ...
+            }
+            switch (c) {
+            ...
+            case 'b':
+                cmdline->bytes_warning++;
+                break;
+            ...
+            }
+        } while (1);
+
+        if (pymain->command == NULL && pymain->module == NULL
+            && _PyOS_optind < pymain->argc
+            && wcscmp(cmdline->argv[_PyOS_optind], L"-") != 0)
+        {
+            pymain->filename = pymain_wstrdup(pymain, cmdline->argv[_PyOS_optind]);
+            if (pymain->filename == NULL) {
+                return -1;
+            }
+        }
+    ...
+    }
+
+\end{lstlisting}\par
+pymain\_parse\_cmdline\_impl通过调用\_PyOS\_GetOpt函数\footnote[1]{\_PyOS\_GetOpt函数定义在Python/getopt.c文件内。}将终端参数转化为对应的特征指示变量c输出，然后由后续的三个条件语句\footnote[2]{
+仅保留对指示变量c是否为“m”以及“c”的条件代码块的主干进行保留，以展示代码的主体结构。
+}以及switch分支代码段进行相关操作的标记。\par
+对pymain\_parse\_cmdline\_impl函数分析的重点放在了\#23-25和\#30-37两部分。对于输入的终端的第二个字符指令非文件名的情况，pymain\_parse\_cmdline\_impl函数大体采用\#23-25的做法：
+即通过将\_PyCmdline结构体cmdline中同指示变量c所对应的成员的值由0通过“++”操作变为1，指示后续的操作。对于输入代码文件的情况，则如同\#30-37所定义的一样通过调用pymain\_wstrdup函数\footnote[3]{pymain\_wstrdup函数定义在Modules/main.c文件\#498-507。}去除无效字符
+\footnote[4]{如NULL。}仅保留文件名之后，将该文件名所对应的字符串指针传输给\_PyMain结构体pymain的filename成员，以便后续操作的进行。\par
+
+% \begin{lstlisting}
+%     /*== Modules/main.c #2932-2967 ==*/
+%     static int
+%     pymain_cmdline(_PyMain *pymain, _PyCoreConfig *config)
+%     {
+%         /* Force default allocator, since pymain_free() and pymain_clear_config()
+%            must use the same allocator than this function. */
+%         PyMemAllocatorEx old_alloc;
+%         _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+%     #ifdef Py_DEBUG
+%         PyMemAllocatorEx default_alloc;
+%         PyMem_GetAllocator(PYMEM_DOMAIN_RAW, &default_alloc);
+%     #endif
+
+%         _PyCmdline cmdline;
+%         memset(&cmdline, 0, sizeof(cmdline));
+
+%         cmdline_get_global_config(&cmdline);
+
+%         int res = pymain_cmdline_impl(pymain, config, &cmdline);
+
+%         cmdline_set_global_config(&cmdline);
+%         _PyCoreConfig_SetGlobalConfig(config);
+%         if (Py_IsolatedFlag) {
+%             Py_IgnoreEnvironmentFlag = 1;
+%             Py_NoUserSiteDirectory = 1;
+%         }
+
+%         pymain_clear_cmdline(pymain, &cmdline);
+
+%     #ifdef Py_DEBUG
+%         /* Make sure that PYMEM_DOMAIN_RAW has not been modified */
+%         PyMemAllocatorEx cur_alloc;
+%         PyMem_GetAllocator(PYMEM_DOMAIN_RAW, &cur_alloc);
+%         assert(memcmp(&cur_alloc, &default_alloc, sizeof(cur_alloc)) == 0);
+%     #endif
+%         PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+%         return res;
+%     }
+% \end{lstlisting}
+% \begin{lstlisting}
+%     static int
+%     pymem_set_default_allocator(PyMemAllocatorDomain domain, int debug,
+%                                 PyMemAllocatorEx *old_alloc)
+%     {
+%         if (old_alloc != NULL) {
+%             PyMem_GetAllocator(domain, old_alloc);
+%         }
+
+
+%         PyMemAllocatorEx new_alloc;
+%         switch(domain)
+%         {
+%         case PYMEM_DOMAIN_RAW:
+%             new_alloc = (PyMemAllocatorEx)PYRAW_ALLOC;
+%             break;
+%         case PYMEM_DOMAIN_MEM:
+%             new_alloc = (PyMemAllocatorEx)PYMEM_ALLOC;
+%             break;
+%         case PYMEM_DOMAIN_OBJ:
+%             new_alloc = (PyMemAllocatorEx)PYOBJ_ALLOC;
+%             break;
+%         default:
+%             /* unknown domain */
+%             return -1;
+%         }
+%         PyMem_SetAllocator(domain, &new_alloc);
+%         if (debug) {
+%             _PyMem_SetupDebugHooksDomain(domain);
+%         }
+%         return 0;
+%     }
+% \end{lstlisting}
+% \begin{lstlisting}
+% typedef struct {
+%     /* user context passed as the first argument to the 4 functions */
+%     void *ctx;
+
+%     /* allocate a memory block */
+%     void* (*malloc) (void *ctx, size_t size);
+
+%     /* allocate a memory block initialized by zeros */
+%     void* (*calloc) (void *ctx, size_t nelem, size_t elsize);
+
+%     /* allocate or resize a memory block */
+%     void* (*realloc) (void *ctx, void *ptr, size_t new_size);
+
+%     /* release a memory block */
+%     void (*free) (void *ctx, void *ptr);
+% } PyMemAllocatorEx;
+% \end{lstlisting}
+    
+
+
+
+
+
+
+% 两函数所封装的函数Py_Main以及_Py_UnixMain均定义于Modules/main.c文件下，除对于pymain结构体的赋值操作有别以外，两函数均是对
+% "pymain_main"函数的封装，而后续对于平台差异的处理，也均体现在"pymain_main"函数对于pymain结构体内所存参数的处理上，详细代码如下：
+% \footnote{个人比较喜欢这种，通过在函数输入变量上进行加工，即通过将不同平台(或函数的不同工作环境)所对应的输入变量的形式上的不同体现在函数的输入变量上，而并非采用不同函数来适应环境或输入差异的解决方式。}\par
+
+
+
+
+
+
+
+
+% \begin{lstlisting}[language={[ANSI]C}]
+%     typedef struct _typeobject {
+%         PyObject_VAR_HEAD
+%         const char *tp_name; /* For printing, in format "<module>.<name>" */
+%         Py_ssize_t tp_basicsize, tp_itemsize; /* For allocation */
+    
+%         /* Methods to implement standard operations */
+    
+%         destructor tp_dealloc;
+%         printfunc tp_print;
+%         getattrfunc tp_getattr;
+%         setattrfunc tp_setattr;
+%         PyAsyncMethods *tp_as_async; /* formerly known as tp_compare (Python 2)
+%                                         or tp_reserved (Python 3) */
+%         reprfunc tp_repr;
+    
+%         /* Method suites for standard classes */
+    
+%         PyNumberMethods *tp_as_number;
+%         PySequenceMethods *tp_as_sequence;
+%         PyMappingMethods *tp_as_mapping;
+    
+%         /* More standard operations (here for binary compatibility) */
+    
+%         hashfunc tp_hash;
+%         ternaryfunc tp_call;
+%         reprfunc tp_str;
+%         getattrofunc tp_getattro;
+%         setattrofunc tp_setattro;
+    
+%         /* Functions to access object as input/output buffer */
+%         PyBufferProcs *tp_as_buffer;
+    
+%         /* Flags to define presence of optional/expanded features */
+%         unsigned long tp_flags;
+    
+%         const char *tp_doc; /* Documentation string */
+    
+%         /* Assigned meaning in release 2.0 */
+%         /* call function for all accessible objects */
+%         traverseproc tp_traverse;
+    
+%         /* delete references to contained objects */
+%         inquiry tp_clear;
+    
+%         /* Assigned meaning in release 2.1 */
+%         /* rich comparisons */
+%         richcmpfunc tp_richcompare;
+    
+%         /* weak reference enabler */
+%         Py_ssize_t tp_weaklistoffset;
+    
+%         /* Iterators */
+%         getiterfunc tp_iter;
+%         iternextfunc tp_iternext;
+    
+%         /* Attribute descriptor and subclassing stuff */
+%         struct PyMethodDef *tp_methods;
+%         struct PyMemberDef *tp_members;
+%         struct PyGetSetDef *tp_getset;
+%         struct _typeobject *tp_base;
+%         PyObject *tp_dict;
+%         descrgetfunc tp_descr_get;
+%         descrsetfunc tp_descr_set;
+%         Py_ssize_t tp_dictoffset;
+%         initproc tp_init;
+%         allocfunc tp_alloc;
+%         newfunc tp_new;
+%         freefunc tp_free; /* Low-level free-memory routine */
+%         inquiry tp_is_gc; /* For PyObject_IS_GC */
+%         PyObject *tp_bases;
+%         PyObject *tp_mro; /* method resolution order */
+%         PyObject *tp_cache;
+%         PyObject *tp_subclasses;
+%         PyObject *tp_weaklist;
+%         destructor tp_del;
+    
+%         /* Type attribute cache version tag. Added in version 2.6 */
+%         unsigned int tp_version_tag;
+    
+%         destructor tp_finalize;
+    
+%     #ifdef COUNT_ALLOCS
+%         /* these must be last and never explicitly initialized */
+%         Py_ssize_t tp_allocs;
+%         Py_ssize_t tp_frees;
+%         Py_ssize_t tp_maxalloc;
+%         struct _typeobject *tp_prev;
+%         struct _typeobject *tp_next;
+%     #endif
+%     } PyTypeObject;
+%     \end{lstlisting}
+
+\end{document}
