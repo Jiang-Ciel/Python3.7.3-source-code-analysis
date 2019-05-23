@@ -59,7 +59,7 @@ numbers=left,
 numberstyle= \tiny,%
 backgroundcolor=\color{white},      % choose the background color
 basicstyle=\footnotesize\ttfamily,  % size of fonts used for the code
-columns=fullflexible,
+columns=flexible,
 tabsize=4,
 breaklines=true,               % automatic line breaking only at whitespace
 captionpos=b,                  % sets the caption-position to bottom
@@ -67,11 +67,30 @@ commentstyle=\color{mygreen},  % comment style
 escapeinside={\%*}{*)},        % if you want to add LaTeX within your code
 keywordstyle=\color{blue},     % keyword style
 stringstyle=\color{mymauve}\ttfamily,  % string literal style
-frame=single,
+frame=tb,
 rulesepcolor=\color{red!20!green!20!blue!20},
 % identifierstyle=\color{red},
 language=C,
 }
+% \definecolor{dkgreen}{rgb}{0,0.6,0}
+% \definecolor{gray}{rgb}{0.5,0.5,0.5}
+% \definecolor{mauve}{rgb}{0.58,0,0.82}
+% \lstset{frame=tb,
+%   language=Python,
+%   aboveskip=3mm,
+%   belowskip=3mm,
+%   showstringspaces=false,
+%   columns=flexible,
+%   basicstyle={\small\ttfamily},
+%   numbers=none,
+%   numberstyle=\tiny\color{gray},
+%   keywordstyle=\color{blue},
+%   commentstyle=\color{dkgreen},
+%   stringstyle=\color{mauve},
+%   breaklines=true,
+%   breakatwhitespace=true,
+%   tabsize=3
+% }
 \CTEXsetup[format={\zihao{4}\bf}]{section}
 
 
@@ -580,6 +599,255 @@ pymain\_parse\_cmdline\_impl通过调用\_PyOS\_GetOpt函数\footnote[1]{\_PyOS\
 即通过将\_PyCmdline结构体cmdline中同指示变量c所对应的成员的值由0通过“++”操作变为1，指示后续的操作。对于输入代码文件的情况，则如同\#30-37所定义的一样通过调用pymain\_wstrdup函数\footnote[3]{pymain\_wstrdup函数定义在Modules/main.c文件\#498-507。}去除无效字符
 \footnote[4]{如NULL。}仅保留文件名之后，将该文件名所对应的字符串指针传输给\_PyMain结构体pymain的filename成员，以便后续操作的进行。\par
 
+\subsection{代码文件的解析}
+\begin{lstlisting}{language=Python}
+>>> from dis import dis
+>>> def square(x):
+...     return x ** 2
+... 
+>>> dis(square)
+  2           0 LOAD_FAST                0 (x)
+              2 LOAD_CONST               1 (2)
+              4 BINARY_POWER
+              6 RETURN_VALUE
+\end{lstlisting}
+\begin{lstlisting}
+    /*== Parser/parser.h #24-31 ==*/
+    typedef struct {
+    stack           p_stack;        /* Stack of parser states */
+    grammar         *p_grammar;     /* Grammar to use */
+    node            *p_tree;        /* Top of parse tree */
+#ifdef PY_PARSER_REQUIRES_FUTURE_KEYWORD
+    unsigned long   p_flags;        /* see co_flags in Include/code.h */
+#endif
+    } parser_state;
+
+    /*== Parser/tokenizer.h #22-65 ==*/
+    struct tok_state {
+    /* Input state; buf <= cur <= inp <= end */
+    /* NB an entire line is held in the buffer */
+    char *buf;          /* Input buffer, or NULL; malloc'ed if fp != NULL */
+    char *cur;          /* Next character in buffer */
+    char *inp;          /* End of data in buffer */
+    char *end;          /* End of input buffer if buf != NULL */
+    char *start;        /* Start of current token if not NULL */
+    int done;           /* E_OK normally, E_EOF at EOF, otherwise error code */
+    /* NB If done != E_OK, cur must be == inp!!! */
+    FILE *fp;           /* Rest of input; NULL if tokenizing a string */
+    int tabsize;        /* Tab spacing */
+    int indent;         /* Current indentation index */
+    int indstack[MAXINDENT];            /* Stack of indents */
+    int atbol;          /* Nonzero if at begin of new line */
+    int pendin;         /* Pending indents (if > 0) or dedents (if < 0) */
+    const char *prompt, *nextprompt;          /* For interactive prompting */
+    int lineno;         /* Current line number */
+    int level;          /* () [] {} Parentheses nesting level */
+            /* Used to allow free continuations inside them */
+    /* Stuff for checking on different tab sizes */
+#ifndef PGEN
+    /* pgen doesn't have access to Python codecs, it cannot decode the input
+       filename. The bytes filename might be kept, but it is only used by
+       indenterror() and it is not really needed: pgen only compiles one file
+       (Grammar/Grammar). */
+    PyObject *filename;
+#endif
+    int altindstack[MAXINDENT];         /* Stack of alternate indents */
+    /* Stuff for PEP 0263 */
+    enum decoding_state decoding_state;
+    int decoding_erred;         /* whether erred in decoding  */
+    int read_coding_spec;       /* whether 'coding:...' has been read  */
+    char *encoding;         /* Source encoding. */
+    int cont_line;          /* whether we are in a continuation line. */
+    const char* line_start;     /* pointer to start of current line */
+#ifndef PGEN
+    PyObject *decoding_readline; /* open(...).readline */
+    PyObject *decoding_buffer;
+#endif
+    const char* enc;        /* Encoding for the current str. */
+    const char* str;
+    const char* input; /* Tokenizer's newline translated copy of the string. */
+};
+\end{lstlisting}
+\begin{lstlisting}
+    /*== Parser/parsetok.c #183-359 ==*/
+    static node *
+    parsetok(struct tok_state *tok, grammar *g, int start, perrdetail *err_ret,
+             int *flags)
+    {
+        parser_state *ps;
+        node *n;
+        int started = 0;
+    
+        if ((ps = PyParser_New(g, start)) == NULL) {
+            err_ret->error = E_NOMEM;
+            PyTokenizer_Free(tok);
+            return NULL;
+        }
+    #ifdef PY_PARSER_REQUIRES_FUTURE_KEYWORD
+        if (*flags & PyPARSE_BARRY_AS_BDFL)
+            ps->p_flags |= CO_FUTURE_BARRY_AS_BDFL;
+    #endif
+    
+        for (;;) {
+            char *a, *b;
+            int type;
+            size_t len;
+            char *str;
+            int col_offset;
+    
+            type = PyTokenizer_Get(tok, &a, &b);
+            if (type == ERRORTOKEN) {
+                err_ret->error = tok->done;
+                break;
+            }
+            if (type == ENDMARKER && started) {
+                type = NEWLINE; /* Add an extra newline */
+                started = 0;
+                /* Add the right number of dedent tokens,
+                   except if a certain flag is given --
+                   codeop.py uses this. */
+                if (tok->indent &&
+                    !(*flags & PyPARSE_DONT_IMPLY_DEDENT))
+                {
+                    tok->pendin = -tok->indent;
+                    tok->indent = 0;
+                }
+            }
+            else
+                started = 1;
+            len = (a != NULL && b != NULL) ? b - a : 0;
+            str = (char *) PyObject_MALLOC(len + 1);
+            if (str == NULL) {
+                err_ret->error = E_NOMEM;
+                break;
+            }
+            if (len > 0)
+                strncpy(str, a, len);
+            str[len] = '\0';
+    
+    #ifdef PY_PARSER_REQUIRES_FUTURE_KEYWORD
+            if (type == NOTEQUAL) {
+                if (!(ps->p_flags & CO_FUTURE_BARRY_AS_BDFL) &&
+                                strcmp(str, "!=")) {
+                    PyObject_FREE(str);
+                    err_ret->error = E_SYNTAX;
+                    break;
+                }
+                else if ((ps->p_flags & CO_FUTURE_BARRY_AS_BDFL) &&
+                                strcmp(str, "<>")) {
+                    PyObject_FREE(str);
+                    err_ret->expected = NOTEQUAL;
+                    err_ret->error = E_SYNTAX;
+                    break;
+                }
+            }
+    #endif
+            if (a != NULL && a >= tok->line_start) {
+                col_offset = Py_SAFE_DOWNCAST(a - tok->line_start,
+                                              intptr_t, int);
+            }
+            else {
+                col_offset = -1;
+            }
+    
+            if ((err_ret->error =
+                 PyParser_AddToken(ps, (int)type, str,
+                                   tok->lineno, col_offset,
+                                   &(err_ret->expected))) != E_OK) {
+                if (err_ret->error != E_DONE) {
+                    PyObject_FREE(str);
+                    err_ret->token = type;
+                }
+                break;
+            }
+        }
+    
+        if (err_ret->error == E_DONE) {
+            n = ps->p_tree;
+            ps->p_tree = NULL;
+    
+    #ifndef PGEN
+            /* Check that the source for a single input statement really
+               is a single statement by looking at what is left in the
+               buffer after parsing.  Trailing whitespace and comments
+               are OK.  */
+            if (start == single_input) {
+                char *cur = tok->cur;
+                char c = *tok->cur;
+    
+                for (;;) {
+                    while (c == ' ' || c == '\t' || c == '\n' || c == '\014')
+                        c = *++cur;
+    
+                    if (!c)
+                        break;
+    
+                    if (c != '#') {
+                        err_ret->error = E_BADSINGLE;
+                        PyNode_Free(n);
+                        n = NULL;
+                        break;
+                    }
+    
+                    /* Suck up comment. */
+                    while (c && c != '\n')
+                        c = *++cur;
+                }
+            }
+    #endif
+        }
+        else
+            n = NULL;
+    
+    #ifdef PY_PARSER_REQUIRES_FUTURE_KEYWORD
+        *flags = ps->p_flags;
+    #endif
+        PyParser_Delete(ps);
+    
+        if (n == NULL) {
+            if (tok->done == E_EOF)
+                err_ret->error = E_EOF;
+            err_ret->lineno = tok->lineno;
+            if (tok->buf != NULL) {
+                size_t len;
+                assert(tok->cur - tok->buf < INT_MAX);
+                err_ret->offset = (int)(tok->cur - tok->buf);
+                len = tok->inp - tok->buf;
+                err_ret->text = (char *) PyObject_MALLOC(len + 1);
+                if (err_ret->text != NULL) {
+                    if (len > 0)
+                        strncpy(err_ret->text, tok->buf, len);
+                    err_ret->text[len] = '\0';
+                }
+            }
+        } else if (tok->encoding != NULL) {
+            /* 'nodes->n_str' uses PyObject_*, while 'tok->encoding' was
+             * allocated using PyMem_
+             */
+            node* r = PyNode_New(encoding_decl);
+            if (r)
+                r->n_str = PyObject_MALLOC(strlen(tok->encoding)+1);
+            if (!r || !r->n_str) {
+                err_ret->error = E_NOMEM;
+                if (r)
+                    PyObject_FREE(r);
+                n = NULL;
+                goto done;
+            }
+            strcpy(r->n_str, tok->encoding);
+            PyMem_FREE(tok->encoding);
+            tok->encoding = NULL;
+            r->n_nchildren = 1;
+            r->n_child = n;
+            n = r;
+        }
+    
+    done:
+        PyTokenizer_Free(tok);
+    
+        return n;
+    }
+\end{lstlisting}
 \begin{lstlisting}
     /*== Modules/main.c #2932-2967 ==*/
     static int

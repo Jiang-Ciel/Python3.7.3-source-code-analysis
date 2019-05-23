@@ -3,3 +3,4 @@
 \contentsline {section}{\numberline {1.2}pymain\_main函数初始化}{6}{section.1.2}% 
 \contentsline {subsection}{\numberline {1.2.1}pymain\_main函数主体}{6}{subsection.1.2.1}% 
 \contentsline {subsection}{\numberline {1.2.2}cpython终端参数解析}{7}{subsection.1.2.2}% 
+\contentsline {subsection}{\numberline {1.2.3}代码文件的解析}{12}{subsection.1.2.3}% 
